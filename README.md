@@ -30,6 +30,6 @@ See full documentation in .env.example file.
 
 ## �� Deployment
 
-Backend URL: https://ai-video-engineer-backend.onrender.com
+Backend URL: https://ai-video-engineer-backend-tm15.onrender.com
 
 Status: MOCK MODE (Switch to production when API keys are available)
