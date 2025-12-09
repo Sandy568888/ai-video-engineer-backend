@@ -1,0 +1,28 @@
+services:
+  - type: web
+    name: ai-video-engineer-backend
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn --worker-class eventlet -w 1 app:app --bind 0.0.0.0:$PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.0
+      - key: MOCK_MODE
+        value: true
+      - key: TTS_PROVIDER
+        value: vibevoice
+      - key: PORT
+        generateValue: true
+      # Add your actual keys in Render dashboard
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: HEYGEN_API_KEY
+        sync: false
+      - key: WASABI_ACCESS_KEY
+        sync: false
+      - key: WASABI_SECRET_KEY
+        sync: false
+      - key: WASABI_BUCKET_NAME
+        value: ai-videos
+      - key: VIBEVOICE_WS_ENDPOINT
+        value: ws://localhost:8765
