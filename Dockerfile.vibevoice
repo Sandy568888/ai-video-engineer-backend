@@ -1,0 +1,24 @@
+FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+
+# Install Python and dependencies
+RUN apt-get update && apt-get install -y \
+    python3.10 \
+    python3-pip \
+    git \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install Python packages
+COPY vibevoice_requirements.txt .
+RUN pip3 install --no-cache-dir -r vibevoice_requirements.txt
+
+# Copy VibeVoice server code
+COPY scripts/vibevoice_server.py .
+
+# Expose WebSocket port
+EXPOSE 8765
+
+# Run the server
+CMD ["python3", "vibevoice_server.py"]
