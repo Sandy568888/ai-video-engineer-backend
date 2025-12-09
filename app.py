@@ -163,3 +163,45 @@ def handle_disconnect():
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 10000))
     socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)
+
+# TTS Admin Endpoints
+from app import tts_adapter
+
+@app.route('/tts/health', methods=['GET'])
+def tts_health():
+    """Check TTS providers health status"""
+    try:
+        health_status = tts_adapter.health_check()
+        return jsonify(health_status), 200
+    except Exception as e:
+        return jsonify({'status': 'error', 'error': str(e)}), 500
+
+@app.route('/admin/set-tts-provider', methods=['POST', 'GET'])
+def set_tts_provider():
+    """
+    Admin endpoint to manually set TTS provider
+    GET /admin/set-tts-provider?provider=vibevoice
+    POST /admin/set-tts-provider with body: {"provider": "vibevoice"}
+    """
+    if request.method == 'POST':
+        data = request.get_json()
+        provider = data.get('provider', '').lower()
+    else:
+        provider = request.args.get('provider', '').lower()
+    
+    if not provider:
+        return jsonify({'error': 'provider parameter required'}), 400
+    
+    success = tts_adapter.set_provider(provider)
+    
+    if success:
+        return jsonify({
+            'success': True,
+            'provider': provider,
+            'message': f'TTS provider set to {provider}'
+        }), 200
+    else:
+        return jsonify({
+            'success': False,
+            'error': 'Invalid provider. Use "vibevoice" or "elevenlabs"'
+        }), 400
