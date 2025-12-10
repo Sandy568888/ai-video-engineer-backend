@@ -20,8 +20,24 @@ class HeyGenService:
         """Create avatar video from audio"""
         if self.mock_mode:
             logger.info("MOCK: Creating HeyGen avatar video")
-            return "mock_avatar_video.mp4"
+            filename = f"mock_avatar_video_{os.urandom(4).hex()}.mp4"
+            self._create_mock_video(filename)
+            return filename
         
         # TODO: Implement real HeyGen API call
         logger.warning("HeyGen integration not yet implemented")
         return None
+    
+    def _create_mock_video(self, filename):
+        """Create a mock MP4 file (empty file for testing)"""
+        try:
+            # Create empty MP4 file
+            with open(filename, 'wb') as f:
+                # Write minimal MP4 header
+                f.write(b'\x00\x00\x00\x20ftypisom\x00\x00\x02\x00isomiso2mp41')
+                f.write(b'\x00' * 100)  # Pad with zeros
+            
+            logger.info(f"Created mock video: {filename}")
+        except Exception as e:
+            logger.error(f"Failed to create mock video: {e}")
+            raise

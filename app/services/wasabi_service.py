@@ -3,12 +3,15 @@ import boto3
 from botocore.exceptions import ClientError
 import logging
 import os
-
 logger = logging.getLogger(__name__)
 
 class WasabiService:
     def __init__(self):
-        self.mock_mode = os.getenv('MOCK_MODE', 'True') == 'True'
+        general_mock = os.getenv('MOCK_MODE', 'False').lower() == 'true'
+        specific_mock = os.getenv('WASABI_MOCK_MODE', 'False').lower() == 'true'
+        self.mock_mode = general_mock or specific_mock
+        
+        logger.info(f"Wasabi initialized: mock_mode={self.mock_mode}")
         
         if not self.mock_mode:
             self.s3_client = boto3.client(
