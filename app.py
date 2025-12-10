@@ -7,10 +7,14 @@ from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_socketio import SocketIO, emit
-
-# Import TTS adapter and services
 from app import tts_adapter
 from app.services.heygen_service import HeyGenService
+from app.services.wasabi_service import WasabiService
+from app.services.gpu_monitor import GPUMonitor
+from app.services.gpu_autoscaling import GPUAutoscaler
+from app.services.video_engine import VideoEngine
+from app.services.lipsync_engine import LipSyncEngine
+from app.services.job_queue import JobQueue
 from app.services.wasabi_service import WasabiService
 
 app = Flask(__name__)
@@ -37,6 +41,12 @@ socketio = SocketIO(app,
 
 # In-memory job tracking
 active_jobs = {}
+
+# Initialize services
+gpu_autoscaler = GPUAutoscaler()
+video_engine = VideoEngine()
+lipsync_engine = LipSyncEngine()
+job_queue = JobQueue()
 
 @app.route('/', methods=['GET'])
 def health_check():
