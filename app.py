@@ -1,3 +1,5 @@
+# VibeVoice TTS Integration - Production Ready
+
 import os
 import uuid
 import threading
