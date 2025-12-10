@@ -1,6 +1,8 @@
 """ElevenLabs service for voice synthesis"""
 import os
 import logging
+import wave
+
 logger = logging.getLogger(__name__)
 
 class ElevenLabsService:
@@ -20,7 +22,10 @@ class ElevenLabsService:
         """Generate voiceover from text"""
         if self.mock_mode:
             logger.info("MOCK: Generating ElevenLabs voiceover")
-            return "mock_audio.mp3"
+            # Create actual mock audio file
+            filename = f"mock_audio_{os.urandom(4).hex()}.wav"
+            self._create_mock_audio(filename)
+            return filename
         
         try:
             from elevenlabs import generate, save
@@ -31,3 +36,22 @@ class ElevenLabsService:
         except Exception as e:
             logger.error(f"ElevenLabs error: {e}")
             return None
+    
+    def _create_mock_audio(self, filename):
+        """Create a mock WAV file"""
+        try:
+            sample_rate = 24000
+            duration = 1  # 1 second
+            num_samples = sample_rate * duration
+            silent_audio = b'\x00\x00' * num_samples
+            
+            with wave.open(filename, 'wb') as wav_file:
+                wav_file.setnchannels(1)
+                wav_file.setsampwidth(2)
+                wav_file.setframerate(sample_rate)
+                wav_file.writeframes(silent_audio)
+            
+            logger.info(f"Created mock audio: {filename}")
+        except Exception as e:
+            logger.error(f"Failed to create mock audio: {e}")
+            raise
