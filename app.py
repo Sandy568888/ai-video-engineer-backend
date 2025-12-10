@@ -270,11 +270,6 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     print('❌ Client disconnected')
-
-if __name__ == '__main__':
-    port = int(os.getenv('PORT', 10000))
-    socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)
-
 # GPU Health Monitoring
 from app.services.gpu_monitor import GPUMonitor
 
@@ -708,5 +703,8 @@ def cleanup_old_jobs():
             'message': f'Cleaned up {deleted} old jobs'
         }), 200
     except Exception as e:
-        return jsonify({'error': str(e)}), 500
 
+        return jsonify({"error": str(e)}), 500
+if __name__ == '__main__':
+    port = int(os.getenv('PORT', 10000))
+    socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)
