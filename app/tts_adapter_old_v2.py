@@ -1,5 +1,5 @@
 """
-TTS Adapter with Multi-Language Support
+TTS Adapter with Analytics - Unified interface for text-to-speech services
 """
 import os
 import time
@@ -8,17 +8,17 @@ from typing import Optional
 from app.services.tts_limits import TTSLimits
 from app.services.tts_analytics import TTSAnalytics
 from app.services.tts_cache import TTSCache
-from app.services.language_detector import LanguageDetector
 
 logger = logging.getLogger(__name__)
 
 # Global provider state
 _current_provider = os.getenv('TTS_PROVIDER', 'vibevoice').lower()
 
-# Service instances
+# Analytics instance
 _analytics = TTSAnalytics()
+
+# Cache instance
 _cache = TTSCache()
-_language_detector = LanguageDetector()
 
 
 def set_provider(provider: str) -> bool:
@@ -46,19 +46,16 @@ def generate_audio(
     voice: Optional[str] = None,
     format: str = "wav",
     video_id: Optional[str] = None,
-    user_id: Optional[str] = None,
-    force_provider: Optional[str] = None
+    user_id: Optional[str] = None
 ) -> Optional[str]:
     """
-    Generate audio with language-based routing
-    
-    Args:
-        force_provider: Override automatic language routing
+    Generate audio with analytics tracking
     """
     
     start_time = time.time()
     fallback_triggered = False
     retry_count = 0
+    provider_used = _current_provider
     status = 'failed'
     error_message = None
     audio_path = None
@@ -70,46 +67,13 @@ def generate_audio(
             error_message = validation_error
             raise ValueError(validation_error)
         
-        # Detect language and route to provider
-        provider_to_use, detected_lang, confidence = _language_detector.route_to_provider(
-            text,
-            force_provider=force_provider
-        )
-        
-        logger.info(f"🌍 Language: {detected_lang} ({confidence:.0%}) → Provider: {provider_to_use}")
-        
-        # Check cache first
-        cached_audio = _cache.get(text, provider_to_use, voice, format)
-        if cached_audio:
-            logger.info(f"🎯 Using cached audio: {cached_audio}")
-            
-            # Log analytics for cache hit
-            execution_time_ms = int((time.time() - start_time) * 1000)
-            audio_duration = len(text) / 15.0
-            
-            _analytics.log_generation(
-                video_id=video_id or 'unknown',
-                user_id=user_id or 'anonymous',
-                provider=provider_to_use,
-                fallback_triggered=False,
-                execution_time_ms=execution_time_ms,
-                audio_duration_seconds=audio_duration,
-                text_length=len(text),
-                voice_id=voice,
-                status='cache_hit',
-                error_message=None,
-                retry_count=0
-            )
-            
-            return cached_audio
-        
         # Import services
         from app.services.vibevoice_service import VibeVoiceService
         from app.services.elevenlabs_service import ElevenLabsService
         
-        # Try routed provider first
-        if provider_to_use == 'vibevoice':
-            logger.info("Attempting VibeVoice (language-routed)")
+        # Try primary provider
+        if _current_provider == 'vibevoice':
+            logger.info("Attempting VibeVoice (primary)")
             try:
                 vibevoice = VibeVoiceService()
                 retry_count = vibevoice.max_retries
@@ -123,9 +87,7 @@ def generate_audio(
                 if audio_path:
                     logger.info(f"✅ VibeVoice succeeded: {audio_path}")
                     status = 'success'
-                    
-                    # Cache the result
-                    _cache.set(text, 'vibevoice', audio_path, voice, format, len(text) / 15.0)
+                    provider_used = 'vibevoice'
                 else:
                     logger.warning("⚠️ VibeVoice returned None, falling back")
                     fallback_triggered = True
@@ -138,7 +100,7 @@ def generate_audio(
         # Use ElevenLabs (primary or fallback)
         if not audio_path:
             logger.info("Using ElevenLabs")
-            provider_to_use = 'elevenlabs'
+            provider_used = 'elevenlabs'
             
             try:
                 elevenlabs = ElevenLabsService()
@@ -150,9 +112,6 @@ def generate_audio(
                 if audio_path:
                     logger.info(f"✅ ElevenLabs succeeded: {audio_path}")
                     status = 'fallback_success' if fallback_triggered else 'success'
-                    
-                    # Cache the result
-                    _cache.set(text, 'elevenlabs', audio_path, voice, format, len(text) / 15.0)
                 else:
                     logger.error("❌ ElevenLabs failed (returned None)")
                     status = 'failed'
@@ -168,12 +127,14 @@ def generate_audio(
     finally:
         # Log analytics
         execution_time_ms = int((time.time() - start_time) * 1000)
-        audio_duration = len(text) / 15.0 if text else None
+        
+        # Estimate audio duration (rough calculation)
+        audio_duration = len(text) / 15.0 if text else None  # ~15 chars/sec
         
         _analytics.log_generation(
             video_id=video_id or 'unknown',
             user_id=user_id or 'anonymous',
-            provider=provider_to_use if 'provider_to_use' in locals() else _current_provider,
+            provider=provider_used,
             fallback_triggered=fallback_triggered,
             execution_time_ms=execution_time_ms,
             audio_duration_seconds=audio_duration,
@@ -183,21 +144,6 @@ def generate_audio(
             error_message=error_message,
             retry_count=retry_count
         )
-
-
-def detect_language(text: str) -> dict:
-    """Detect language from text"""
-    lang_code, confidence = _language_detector.detect_language(text)
-    return {
-        'language_code': lang_code,
-        'language_name': _language_detector.LANGUAGE_NAMES.get(lang_code, 'Unknown'),
-        'confidence': round(confidence, 4)
-    }
-
-
-def get_supported_languages() -> dict:
-    """Get supported languages by provider"""
-    return _language_detector.get_supported_languages()
 
 
 def get_analytics_stats(days: int = 1) -> dict:
@@ -231,7 +177,6 @@ def health_check() -> dict:
     health = {
         'current_provider': _current_provider,
         'limits': get_limits_info(),
-        'supported_languages': get_supported_languages(),
         'providers': {}
     }
     
