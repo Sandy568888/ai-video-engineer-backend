@@ -1,3 +1,5 @@
+# VibeVoice TTS Integration - Production Ready
+
 import os
 import uuid
 import threading
@@ -224,6 +226,8 @@ def tts_health():
     """Check TTS providers health status"""
     try:
         health_status = tts_adapter.health_check()
+        health_status['streaming'] = tts_adapter.get_streaming_config()
+        health_status['limits'] = tts_adapter.get_limits_info()
         return jsonify(health_status), 200
     except Exception as e:
         return jsonify({'status': 'error', 'error': str(e)}), 500
@@ -266,7 +270,441 @@ def handle_connect():
 @socketio.on('disconnect')
 def handle_disconnect():
     print('❌ Client disconnected')
+# GPU Health Monitoring
+from app.services.gpu_monitor import GPUMonitor
 
+@app.route('/tts/gpu-health', methods=['GET'])
+def gpu_health():
+    """
+    Get GPU health statistics
+    
+    Returns GPU metrics including:
+    - Memory usage
+    - GPU utilization
+    - Temperature
+    - Active TTS streams
+    - Queue depth
+    """
+    try:
+        monitor = GPUMonitor()
+        
+        # Check if detailed stats requested
+        detailed = request.args.get('detailed', 'false').lower() == 'true'
+        
+        if detailed:
+            stats = monitor.get_gpu_stats()
+        else:
+            stats = monitor.get_health_summary()
+        
+        return jsonify(stats), 200
+        
+    except Exception as e:
+        logger.error(f"GPU health check failed: {e}", exc_info=True)
+        return jsonify({
+            'status': 'error',
+            'error': str(e)
+        }), 500
+
+@app.route('/admin/gpu-stats', methods=['GET'])
+def admin_gpu_stats():
+    """Admin endpoint for detailed GPU statistics"""
+    try:
+        monitor = GPUMonitor()
+        stats = monitor.get_gpu_stats()
+        return jsonify(stats), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/tts/analytics', methods=['GET'])
+def tts_analytics():
+    """Get TTS generation analytics"""
+    try:
+        days = int(request.args.get('days', 1))
+        stats = tts_adapter.get_analytics_stats(days)
+        return jsonify(stats), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/tts/cache/stats', methods=['GET'])
+def tts_cache_stats():
+    """Get TTS cache statistics"""
+    try:
+        from app.services.tts_cache import TTSCache
+        cache = TTSCache()
+        stats = cache.get_stats()
+        return jsonify(stats), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/cache/clear', methods=['POST'])
+def clear_tts_cache():
+    """Clear TTS cache (admin only)"""
+    try:
+        from app.services.tts_cache import TTSCache
+        cache = TTSCache()
+        deleted = cache.clear()
+        return jsonify({
+            'success': True,
+            'deleted_files': deleted,
+            'message': f'Cleared {deleted} cache files'
+        }), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/tts/voice/config', methods=['GET'])
+def get_voice_config():
+    """Get current voice configuration"""
+    try:
+        from app.services.voice_config import VoiceConfig
+        config = VoiceConfig.from_env()
+        return jsonify(config.to_dict()), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/voice/test', methods=['POST'])
+def test_voice_config():
+    """Test voice configuration (admin only)"""
+    try:
+        from app.services.voice_config import VoiceManager
+        
+        data = request.get_json()
+        user_id = data.get('user_id', 'test-user')
+        base_voice = data.get('voice_id', 'default')
+        project_id = data.get('project_id')
+        
+        manager = VoiceManager()
+        voice_params = manager.create_consistent_voice(
+            base_voice_id=base_voice,
+            user_id=user_id,
+            project_id=project_id
+        )
+        
+        return jsonify({
+            'success': True,
+            'voice_parameters': voice_params
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/tts/detect-language', methods=['POST'])
+def detect_language():
+    """Detect language from text"""
+    try:
+        data = request.get_json()
+        text = data.get('text', '')
+        
+        if not text:
+            return jsonify({'error': 'text is required'}), 400
+        
+        result = tts_adapter.detect_language(text)
+        return jsonify(result), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/tts/supported-languages', methods=['GET'])
+def supported_languages():
+    """Get supported languages by provider"""
+    try:
+        languages = tts_adapter.get_supported_languages()
+        return jsonify(languages), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# GPU Autoscaling
+from app.services.gpu_autoscaling import GPUAutoscaler
+
+gpu_autoscaler = GPUAutoscaler()
+
+@app.route('/admin/gpu/cluster', methods=['GET'])
+def get_gpu_cluster():
+    """Get GPU cluster status (admin only)"""
+    try:
+        status = gpu_autoscaler.get_cluster_status()
+        return jsonify(status), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/gpu/register', methods=['POST'])
+def register_gpu_node():
+    """Register a new GPU node (admin only)"""
+    try:
+        data = request.get_json()
+        node_id = data.get('node_id')
+        gpu_count = data.get('gpu_count', 1)
+        endpoint = data.get('endpoint')
+        
+        if not node_id or not endpoint:
+            return jsonify({'error': 'node_id and endpoint required'}), 400
+        
+        success = gpu_autoscaler.register_node(node_id, gpu_count, endpoint)
+        
+        if success:
+            return jsonify({
+                'success': True,
+                'message': f'Node {node_id} registered'
+            }), 200
+        else:
+            return jsonify({'error': 'Failed to register node'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/gpu/scale', methods=['POST'])
+def scale_gpu_cluster():
+    """Trigger GPU cluster scaling (admin only)"""
+    try:
+        data = request.get_json()
+        direction = data.get('direction', 'up')
+        
+        if direction == 'up':
+            success = gpu_autoscaler.scale_up()
+        elif direction == 'down':
+            success = gpu_autoscaler.scale_down()
+        else:
+            return jsonify({'error': 'direction must be "up" or "down"'}), 400
+        
+        return jsonify({
+            'success': success,
+            'action': f'scale_{direction}',
+            'cluster': gpu_autoscaler.get_cluster_status()
+        }), 200
+        
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Internal Video Engine
+from app.services.video_engine import VideoEngine
+
+video_engine = VideoEngine()
+
+@app.route('/video/templates', methods=['GET'])
+def list_video_templates():
+    """List available video templates"""
+    try:
+        templates = video_engine.list_templates()
+        return jsonify({'templates': templates}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/video/templates/<template_id>', methods=['GET'])
+def get_video_template(template_id):
+    """Get specific video template"""
+    try:
+        template = video_engine.get_template(template_id)
+        if template:
+            return jsonify(template.to_dict()), 200
+        else:
+            return jsonify({'error': 'Template not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/video/template', methods=['POST'])
+def create_video_template():
+    """Create new video template (admin only)"""
+    try:
+        data = request.get_json()
+        success = video_engine.create_template(
+            template_id=data.get('template_id'),
+            name=data.get('name'),
+            resolution=tuple(data.get('resolution', [1920, 1080])),
+            fps=data.get('fps', 30),
+            background_type=data.get('background_type', 'color'),
+            background_value=data.get('background_value', '#000000'),
+            presenter_position=data.get('presenter_position')
+        )
+        
+        if success:
+            return jsonify({'success': True, 'message': 'Template created'}), 200
+        else:
+            return jsonify({'error': 'Failed to create template'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/video/engine/stats', methods=['GET'])
+def video_engine_stats():
+    """Get video engine statistics"""
+    try:
+        stats = video_engine.get_stats()
+        return jsonify(stats), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Lip-Sync Engine
+from app.services.lipsync_engine import LipSyncEngine
+
+lipsync_engine = LipSyncEngine()
+
+@app.route('/lipsync/stats', methods=['GET'])
+def lipsync_stats():
+    """Get lip-sync engine statistics"""
+    try:
+        stats = lipsync_engine.get_stats()
+        return jsonify(stats), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/lipsync/languages', methods=['GET'])
+def lipsync_languages():
+    """Get supported languages for lip-sync"""
+    try:
+        languages = lipsync_engine.get_supported_languages()
+        return jsonify({'languages': languages}), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/lipsync/analyze', methods=['POST'])
+def analyze_audio_phonemes():
+    """Analyze audio and extract phonemes (admin only)"""
+    try:
+        data = request.get_json()
+        audio_path = data.get('audio_path')
+        language = data.get('language', 'en')
+        
+        if not audio_path:
+            return jsonify({'error': 'audio_path required'}), 400
+        
+        phonemes = lipsync_engine.analyze_audio(audio_path, language)
+        
+        if phonemes:
+            return jsonify({'phonemes': phonemes}), 200
+        else:
+            return jsonify({'error': 'Failed to analyze audio'}), 500
+            
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+# Job Queue System
+from app.services.job_queue import JobQueue, JobStatus
+
+job_queue = JobQueue()
+
+# Replace the old process_video with queue-based version
+def process_video_with_queue(job_id: str):
+    """Process video generation job from queue"""
+    
+    job_data = job_queue.get_job(job_id)
+    if not job_data:
+        logger.error(f"Job not found: {job_id}")
+        return
+    
+    payload = job_data['payload']
+    video_id = payload['video_id']
+    script = payload['script']
+    template = payload['template']
+    user_id = payload['user_id']
+    
+    try:
+        socketio.emit('video_status', {
+            'id': video_id,
+            'status': 'processing',
+            'message': 'Starting video generation...',
+            'progress': 10,
+            'userId': user_id
+        })
+        
+        # Generate audio using TTS adapter
+        audio_path = tts_adapter.generate_audio(
+            text=script,
+            filename_prefix=f"video_{video_id}",
+            video_id=video_id,
+            user_id=user_id
+        )
+        
+        if not audio_path:
+            raise Exception("Audio generation failed")
+        
+        socketio.emit('video_status', {
+            'id': video_id,
+            'status': 'processing',
+            'message': 'Audio generated successfully',
+            'progress': 50,
+            'userId': user_id
+        })
+        
+        # Generate video (mock for now)
+        video_url = f"https://mock-video.com/{video_id}.mp4"
+        
+        socketio.emit('video_status', {
+            'id': video_id,
+            'status': 'completed',
+            'message': 'Video generation complete!',
+            'progress': 100,
+            'videoUrl': video_url,
+            'userId': user_id
+        })
+        
+        # Mark job as completed
+        job_queue.complete_job(job_id, {
+            'video_id': video_id,
+            'video_url': video_url,
+            'audio_path': audio_path
+        })
+        
+    except Exception as e:
+        error_msg = str(e)
+        logger.error(f"Video generation failed: {error_msg}")
+        
+        socketio.emit('video_status', {
+            'id': video_id,
+            'status': 'failed',
+            'message': f'Error: {error_msg}',
+            'progress': 0,
+            'userId': user_id
+        })
+        
+        # Mark job as failed (will retry)
+        job_queue.fail_job(job_id, error_msg)
+
+@app.route('/jobs/stats', methods=['GET'])
+def get_job_stats():
+    """Get job queue statistics"""
+    try:
+        stats = job_queue.get_queue_stats()
+        return jsonify(stats), 200
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/jobs/<job_id>', methods=['GET'])
+def get_job_status(job_id):
+    """Get job status"""
+    try:
+        job = job_queue.get_job(job_id)
+        if job:
+            return jsonify(job), 200
+        else:
+            return jsonify({'error': 'Job not found'}), 404
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/jobs/<job_id>/cancel', methods=['POST'])
+def cancel_job(job_id):
+    """Cancel a job"""
+    try:
+        success = job_queue.cancel_job(job_id)
+        if success:
+            return jsonify({'success': True, 'message': 'Job cancelled'}), 200
+        else:
+            return jsonify({'error': 'Failed to cancel job'}), 400
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/admin/jobs/cleanup', methods=['POST'])
+def cleanup_old_jobs():
+    """Cleanup old jobs (admin only)"""
+    try:
+        days = int(request.args.get('days', 7))
+        deleted = job_queue.cleanup_old_jobs(days)
+        return jsonify({
+            'success': True,
+            'deleted': deleted,
+            'message': f'Cleaned up {deleted} old jobs'
+        }), 200
+    except Exception as e:
+
+        return jsonify({"error": str(e)}), 500
 if __name__ == '__main__':
     port = int(os.getenv('PORT', 10000))
     socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)
