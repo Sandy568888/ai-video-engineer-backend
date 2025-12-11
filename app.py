@@ -15,6 +15,7 @@ from app.services.gpu_autoscaling import GPUAutoscaler
 from app.services.video_engine import VideoEngine
 from app.services.lipsync_engine import LipSyncEngine
 from app.services.job_queue import JobQueue
+from app.services.bubble_service import BubbleService
 from app.services.wasabi_service import WasabiService
 
 app = Flask(__name__)
@@ -45,6 +46,7 @@ active_jobs = {}
 # Initialize services
 gpu_autoscaler = GPUAutoscaler()
 video_engine = VideoEngine()
+bubble_service = BubbleService()
 lipsync_engine = LipSyncEngine()
 job_queue = JobQueue()
 
@@ -168,6 +170,17 @@ def process_video(video_id, script, template, user_id):
             'completedAt': datetime.utcnow().isoformat()
         }
         
+        
+        # Sync to Bubble.io
+        bubble_service.sync_metadata({
+            'video_id': video_id,
+            'user_id': user_id,
+            'script': script,
+            'template': template,
+            'status': 'completed',
+            'video_url': final_video_url,
+            'created_at': datetime.utcnow().isoformat()
+        })
     except Exception as e:
         error_message = str(e)
         print(f"❌ Error processing video {video_id}: {error_message}")
